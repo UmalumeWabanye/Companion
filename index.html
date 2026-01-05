@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Companion — A Gentle Support</title>
+  <meta name="description" content="Choose how you're feeling and get a comforting message tailored to you." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <!-- Splash Screen Overlay -->
+  <section id="splash-screen" class="splash active" role="dialog" aria-modal="true" aria-labelledby="splash-title" aria-describedby="splash-body">
+    <div class="splash-card">
+      <h2 id="splash-title" class="sr-only">A note before you begin</h2>
+      <div id="splash-body" class="splash-body">
+        <p>I made this space for you, not to influence you or change how you feel, but to give you somewhere neutral to put your thoughts when everything feels heavy.</p>
+        <p>It isn’t meant to take sides or lead you anywhere. It’s simply here to help you name what you’re feeling, at your own pace, without judgment.</p>
+        <p>I wasn't as neutral as I said I would be, and this is my way of apologising for that.</p>
+        <p>Use this only if it helps you. There’s no expectation, no pressure, and no right outcome.</p>
+      </div>
+      <div class="actions" style="margin-top: 16px;">
+        <button id="splash-continue-btn" class="primary">Enter</button>
+      </div>
+      <small class="muted auto-note">This will close automatically within 40 seconds.</small>
+    </div>
+  </section>
+
+  <main class="container">
+    <header class="app-header">
+      <h1 class="brand">Companion</h1>
+      <p class="subtitle">Choose how you feel, then we’ll ask a few gentle questions—like a couples therapist in a brief 1:1—before offering a tailored reflection.</p>
+    </header>
+
+    <!-- Mood selection screen -->
+    <section id="mood-screen" class="screen active" aria-labelledby="mood-screen-title">
+      <h2 id="mood-screen-title" class="sr-only">Select a mood</h2>
+      <div class="mood-grid" role="list">
+        <button class="mood-card" role="listitem" data-mood="denial">
+          <span class="mood-title">Denial</span>
+          <span class="mood-desc">It feels unreal or hard to accept.</span>
+        </button>
+        <button class="mood-card" role="listitem" data-mood="anger">
+          <span class="mood-title">Anger</span>
+          <span class="mood-desc">Frustration, resentment, or rage.</span>
+        </button>
+        <button class="mood-card" role="listitem" data-mood="bargaining">
+          <span class="mood-title">Bargaining</span>
+          <span class="mood-desc">"If only" thoughts and what-ifs.</span>
+        </button>
+        <button class="mood-card" role="listitem" data-mood="depression">
+          <span class="mood-title">Depression</span>
+          <span class="mood-desc">Heavy sadness, loss of energy.</span>
+        </button>
+        <button class="mood-card" role="listitem" data-mood="acceptance">
+          <span class="mood-title">Acceptance</span>
+          <span class="mood-desc">Grounded with room to heal.</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Questions screen (guided intake) -->
+    <section id="questions-screen" class="screen" aria-labelledby="questions-screen-title">
+      <h2 id="questions-screen-title" class="sr-only">Answer a few questions</h2>
+      <div class="reason-header">
+        <button id="q-back-btn" class="ghost">← Back</button>
+        <h3 id="q-title">Let’s explore this together</h3>
+        <span id="q-progress" class="muted"></span>
+      </div>
+
+      <label id="q-prompt" for="q-input" class="reason-label">What feels most make‑or‑break right now?</label>
+      <textarea id="q-input" class="reason-input" rows="5" placeholder="Answer in your own words. You can skip any question."></textarea>
+
+      <div class="actions">
+        <button id="q-next-btn" class="primary">Next</button>
+        <button id="q-skip-btn" class="secondary">Skip</button>
+        <button id="q-generate-btn" class="secondary" style="margin-left:auto" disabled>Generate Support</button>
+      </div>
+      <p class="disclaimer">This brief check‑in aims to support clarity, safety, and care. It’s not a substitute for professional help. If you’re in crisis, please seek local emergency support.</p>
+    </section>
+
+    <!-- Message screen -->
+    <section id="reason-screen" class="screen" aria-labelledby="reason-screen-title">
+      <h2 id="reason-screen-title" class="sr-only">Your tailored reflection</h2>
+      <div class="reason-header">
+        <button id="back-btn" class="ghost">← Back</button>
+        <h3 id="reason-title">Your gentle reflection</h3>
+      </div>
+
+      <div class="actions">
+        <button id="regen-btn" class="secondary" disabled>Regenerate</button>
+      </div>
+
+      <div id="message-area" class="message-area" aria-live="polite" aria-atomic="true"></div>
+      <p class="disclaimer">This tool offers supportive messages and is not a substitute for professional care. If you're in crisis, please seek local emergency support.</p>
+    </section>
+
+    <footer class="app-footer">
+      <small>Companion • A Gentle Support</small>
+    </footer>
+  </main>
+
+  <script src="./script.js"></script>
+</body>
+</html>
