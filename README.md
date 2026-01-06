@@ -28,6 +28,42 @@ python3 -m http.server 5500
 This uses the offline generator by default.
 
 ## Optional: AI backend
+# Conversation history (SQLite)
+
+The local API server now persists conversations in a SQLite database (`her.db`). Each conversation stores:
+
+- userId (generated client-side and stored in localStorage)
+- mood
+- answers (JSON summary of question responses)
+- message (generated support reflection)
+- timestamp
+
+### Endpoints
+
+- `POST /api/conversation` — Save a conversation
+	- Body: `{ userId, mood, answers, message }`
+- `POST /api/conversations` — List conversations
+	- Body: `{ userId, limit?, offset? }`
+- `POST /api/themes` — Aggregate themes
+	- Body: `{ userId }`
+- `POST /api/generate` — Generate AI message
+	- Body: `{ mood, reason, userId? }` — When `userId` is provided, the server also saves the conversation.
+
+### Run
+
+```sh
+export OPENAI_API_KEY="your_key_here" # optional, for AI messages
+npm install
+npm run start:api
+# DB file her.db will be created automatically in project root
+```
+
+### Client behavior
+
+- On first load, the client creates a `userId` and stores it in `localStorage`.
+- After generating a message (AI or offline), the client saves the conversation via the API.
+- If the API is unavailable, it stores a limited history in `localStorage` as fallback.
+- The client fetches aggregated themes and reorders questions to prioritize relevant prompts.
 
 If you have an OpenAI API key and want AI-tailored messages:
 

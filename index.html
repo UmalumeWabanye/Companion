@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <title>Companion — A Gentle Support</title>
   <meta name="description" content="Choose how you're feeling and get a comforting message tailored to you." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -59,6 +59,15 @@
           <span class="mood-desc">Grounded with room to heal.</span>
         </button>
       </div>
+
+      <!-- Recent history -->
+      <section id="history-section" class="history" aria-labelledby="history-title">
+        <div class="reason-header">
+          <h3 id="history-title">Recent reflections</h3>
+          <button id="history-refresh-btn" class="secondary" style="margin-left:auto">Refresh</button>
+        </div>
+        <div id="history-list" class="history-list" aria-live="polite" aria-atomic="false"></div>
+      </section>
     </section>
 
     <!-- Questions screen (guided intake) -->

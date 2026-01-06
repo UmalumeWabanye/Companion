@@ -9,6 +9,7 @@
     if (!splash) return;
     splash.classList.remove('active');
     splash.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('no-scroll');
     splash.removeEventListener('keydown', onSplashKey);
     if (splashContinueBtn) splashContinueBtn.removeEventListener('click', hideSplash);
     if (splashTimerId) { clearTimeout(splashTimerId); splashTimerId = null; }
@@ -22,6 +23,7 @@
     if (!splash) return;
     splash.classList.add('active');
     splash.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('no-scroll');
     splash.tabIndex = -1;
     splash.focus({ preventScroll: true });
     splash.addEventListener('keydown', onSplashKey);
@@ -38,6 +40,9 @@
     const regenBtn = document.getElementById('regen-btn');
     const backBtn = document.getElementById('back-btn');
     const messageArea = document.getElementById('message-area');
+    // History UI
+    const historyList = document.getElementById('history-list');
+    const historyRefreshBtn = document.getElementById('history-refresh-btn');
 
     // Questions UI
     const qBackBtn = document.getElementById('q-back-btn');
@@ -53,12 +58,13 @@
     let answers = {};
     let step = 0;
     let lastReason = '';
+    const userId = getOrCreateUserId();
 
     // Show splash at startup
     showSplash();
 
     // Guided questions for make-or-break, couples therapy in an individual session
-    const questions = [
+    let questions = [
       { id: 'make_or_break', prompt: 'What feels most make‑or‑break for you in this relationship right now?' },
       { id: 'hopes', prompt: 'If you imagine staying versus leaving, what do you hope would change in each path?' },
       { id: 'boundaries', prompt: 'Where have your boundaries been crossed or respected recently?' },
@@ -114,6 +120,19 @@
       setupQuestionStep();
     });
 
+    // On mobile, ensure the textarea is visible when focused (avoid keyboard occlusion)
+    if (qInput) {
+      qInput.addEventListener('focus', () => {
+        try {
+          if (window.matchMedia && window.matchMedia('(max-width: 480px)').matches) {
+            setTimeout(() => {
+              qInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 50);
+          }
+        } catch {}
+      });
+    }
+
     qGenerateBtn.addEventListener('click', async () => {
       if (!currentMood) return;
       setLoading(true);
@@ -122,6 +141,12 @@
         const msg = await generateSupportMessage(currentMood, summary);
         renderMessage(msg);
         regenBtn.disabled = false;
+        // Save conversation (server if available; fallback local)
+        await saveConversation({ userId, mood: currentMood, answers, message: msg.body }).catch(() => {
+          saveConversationLocal({ mood: currentMood, answers, message: msg.body });
+        });
+        // Refresh history panel
+        try { const h = await getHistory(5); renderHistory(h); } catch {}
         switchScreen('reason');
       } catch (err) {
         console.error(err);
@@ -207,6 +232,10 @@
     moodScreen.classList.toggle('active', which === 'mood');
      questionsScreen.classList.toggle('active', which === 'questions');
      reasonScreen.classList.toggle('active', which === 'reason');
+    // Ensure viewport is positioned well on mobile when entering questions
+    if (which === 'questions') {
+      try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+    }
   }
 
   function setLoading(isLoading) {
@@ -254,7 +283,7 @@
       const res = await fetch(`${base}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mood, reason }),
+        body: JSON.stringify({ mood, reason, userId }),
         signal: ctrl.signal,
       });
       clearTimeout(timeout);
@@ -303,6 +332,190 @@
   function truncate(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
   function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
   function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  // --- Persistence helpers ---
+  function getOrCreateUserId() {
+    try {
+      const k = 'her_user_id';
+      let id = localStorage.getItem(k);
+      if (!id) {
+        id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+        localStorage.setItem(k, id);
+      }
+      return id;
+    } catch {
+      // Fallback if localStorage unavailable
+      return String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+    }
+  }
+
+  async function saveConversation(payload) {
+    const base = window._HER_API_BASE || 'http://localhost:3001';
+    const res = await fetch(`${base}/api/conversation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('save failed');
+    return res.json();
+  }
+
+  function saveConversationLocal(entry) {
+    try {
+      const k = 'her_local_conversations';
+      const arr = JSON.parse(localStorage.getItem(k) || '[]');
+      arr.unshift({ ...entry, ts: Date.now() });
+      localStorage.setItem(k, JSON.stringify(arr.slice(0, 50))); // cap size
+    } catch {}
+  }
+
+  async function fetchThemes() {
+    const base = window._HER_API_BASE || 'http://localhost:3001';
+    try {
+      const res = await fetch(`${base}/api/themes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      if (!res.ok) throw new Error('themes fetch failed');
+      const data = await res.json();
+      return data.themes || {};
+    } catch {
+      // Fallback to local
+      try {
+        const k = 'her_local_conversations';
+        const arr = JSON.parse(localStorage.getItem(k) || '[]');
+        const counts = {};
+        for (const r of arr) {
+          const text = summarizeAnswers(r.answers || {}) || r.message || '';
+          const t = detectTheme(text);
+          counts[t] = (counts[t] || 0) + 1;
+        }
+        return counts;
+      } catch {
+        return {};
+      }
+    }
+  }
+
+  // --- History: fetch and render ---
+  async function getHistory(limit = 5, offset = 0) {
+    const base = window._HER_API_BASE || 'http://localhost:3001';
+    // Try server first
+    try {
+      const res = await fetch(`${base}/api/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, limit, offset }),
+      });
+      if (!res.ok) throw new Error('history fetch failed');
+      const data = await res.json();
+      const rows = data.conversations || [];
+      return rows.map(r => ({
+        mood: r.mood,
+        message: r.message,
+        answers: parseAnswers(r.answers),
+        ts: Date.parse(r.created_at || Date.now()),
+      }));
+    } catch {
+      // Fallback to localStorage
+      try {
+        const k = 'her_local_conversations';
+        const arr = JSON.parse(localStorage.getItem(k) || '[]');
+        return arr.slice(0, limit).map(r => ({ mood: r.mood, message: r.message, answers: r.answers, ts: r.ts }));
+      } catch {
+        return [];
+      }
+    }
+  }
+
+  function parseAnswers(a) {
+    if (!a) return {};
+    if (typeof a === 'object') return a;
+    try { return JSON.parse(a); } catch { return { summary: String(a) }; }
+  }
+
+  function renderHistory(items) {
+    if (!historyList) return;
+    if (!items || !items.length) {
+      historyList.innerHTML = `<p class="muted">No reflections yet. Generate one to see it here.</p>`;
+      return;
+    }
+    historyList.innerHTML = items.map((it, idx) => {
+      const d = it.ts ? new Date(it.ts) : new Date();
+      const when = d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      return `<div class="history-item" data-index="${idx}">
+        <div>
+          <div class="meta">${escapeHtml(when)} • ${escapeHtml(capitalize(it.mood || ''))}</div>
+          <h4>A gentle note for ${escapeHtml(capitalize(it.mood || ''))}</h4>
+          <p>${escapeHtml((it.message || '').slice(0, 400))}</p>
+        </div>
+        <div>
+          <button class="secondary open-btn" data-open="${idx}">Open</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Open a history item into the message screen
+  if (historyList) {
+    historyList.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-open]');
+      if (!btn) return;
+      const idx = Number(btn.getAttribute('data-open'));
+      // Re-fetch current rendered list from DOM dataset; or better, keep last cache:
+      if (!historyList._cache) return;
+      const it = historyList._cache[idx];
+      if (!it) return;
+      currentMood = it.mood || null;
+      renderMessage({ title: `A gentle note for ${capitalize(currentMood || '')}`, body: it.message || '' });
+      regenBtn.disabled = !!it.message;
+      switchScreen('reason');
+    });
+  }
+
+  if (historyRefreshBtn) {
+    historyRefreshBtn.addEventListener('click', async () => {
+      try {
+        const items = await getHistory(6);
+        historyList._cache = items;
+        renderHistory(items);
+      } catch (e) { console.warn(e); }
+    });
+  }
+
+  // --- Adaptive questions ---
+  // Make questions re-orderable by history themes
+  function adaptQuestionsByHistory(themes) {
+    // Prioritize based on most frequent themes; stable reordering
+    const priority = [];
+    const tKeys = Object.keys(themes).sort((a, b) => (themes[b] || 0) - (themes[a] || 0));
+    if (tKeys.includes('relationship')) priority.push('patterns', 'boundaries');
+    if (tKeys.includes('loss')) priority.push('support', 'future_self');
+    if (tKeys.includes('overwhelm')) priority.push('make_or_break', 'support');
+    if (tKeys.includes('money')) priority.push('hopes', 'non_negotiable');
+    if (tKeys.includes('health')) priority.push('safety');
+
+    const ids = new Set(priority);
+    const reordered = [
+      ...questions.filter(q => ids.has(q.id)),
+      ...questions.filter(q => !ids.has(q.id)),
+    ];
+    questions = reordered;
+  }
+
+  // Fetch themes and adapt at startup (after splash shows)
+  showSplash();
+  fetchThemes().then(adaptQuestionsByHistory).catch(() => {});
+
+  // After splash and theme load, also load history initially
+  (async () => {
+    try {
+      const items = await getHistory(6);
+      if (historyList) historyList._cache = items;
+      renderHistory(items);
+    } catch { /* ignore */ }
+  })();
 
   const messageBank = {
     denial: [
