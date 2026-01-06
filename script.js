@@ -43,6 +43,8 @@
     // History UI
     const historyList = document.getElementById('history-list');
     const historyRefreshBtn = document.getElementById('history-refresh-btn');
+  // Continuation UI
+  const continueMoods = document.getElementById('continue-moods');
 
     // Questions UI
     const qBackBtn = document.getElementById('q-back-btn');
@@ -63,17 +65,138 @@
     // Show splash at startup
     showSplash();
 
-    // Guided questions for make-or-break, couples therapy in an individual session
-    let questions = [
-      { id: 'make_or_break', prompt: 'What feels most make‑or‑break for you in this relationship right now?' },
-      { id: 'hopes', prompt: 'If you imagine staying versus leaving, what do you hope would change in each path?' },
-      { id: 'boundaries', prompt: 'Where have your boundaries been crossed or respected recently?' },
-      { id: 'non_negotiable', prompt: 'What is one non‑negotiable for you—something you won’t trade away?' },
-      { id: 'safety', prompt: 'How emotionally and physically safe do you feel? (Share any detail that matters.)' },
-      { id: 'patterns', prompt: 'What patterns do you notice repeating between you—especially under stress?' },
-      { id: 'support', prompt: 'Who is in your support circle that you can talk to or lean on?' },
-      { id: 'future_self', prompt: 'If you picture yourself in three months, what would you thank yourself for choosing today?' },
+    // Mood-specific guided questions; each has a category for adaptive ordering
+    const questionsByMood = {
+      denial: [
+        { id: 'dn_tangible', category: 'make_or_break', prompt: 'What feels most tangible to focus on in the next day or two?' },
+        { id: 'dn_checks', category: 'patterns', prompt: 'What facts or signals help you orient when things feel unreal?' },
+        { id: 'dn_senses', category: 'support', prompt: 'What simple sensory anchors (sight, sound, touch) help you feel a bit steadier?' },
+        { id: 'dn_boundaries', category: 'boundaries', prompt: 'Is there one boundary that would make today feel safer to meet as it is?' },
+        { id: 'dn_support', category: 'support', prompt: 'Who could you text or call just to say where you are with this—no fixing needed?' },
+        { id: 'dn_future', category: 'future_self', prompt: 'What would your future self thank you for doing gently today?' },
+      ],
+      anger: [
+        { id: 'ag_need', category: 'make_or_break', prompt: 'If anger could speak plainly, what need is it naming right now?' },
+        { id: 'ag_boundary', category: 'boundaries', prompt: 'Which boundary was crossed, and what would honoring it look like today?' },
+        { id: 'ag_release', category: 'support', prompt: 'What safe outlet would release a little energy—movement, writing, or breath?' },
+        { id: 'ag_choice', category: 'patterns', prompt: 'After a short pause, what small choice feels more aligned than reactive?' },
+        { id: 'ag_safety', category: 'safety', prompt: 'Is there any safety step you want to take before anything else?' },
+        { id: 'ag_next', category: 'future_self', prompt: 'What tiny, concrete step respects both your anger and your care?' },
+      ],
+      bargaining: [
+        { id: 'bg_ifonly', category: 'patterns', prompt: 'Which “if only” is looping most right now?' },
+        { id: 'bg_influence', category: 'make_or_break', prompt: 'What part of this can you actually influence today?' },
+        { id: 'bg_cost', category: 'non_negotiable', prompt: 'What are you trading away when you chase a deal with reality?' },
+        { id: 'bg_commit', category: 'future_self', prompt: 'What small commitment (5–10 minutes) would move this gently forward?' },
+        { id: 'bg_support', category: 'support', prompt: 'Who could witness this without trying to solve it?' },
+        { id: 'bg_boundary', category: 'boundaries', prompt: 'What boundary helps you meet what is, not just what-if?' },
+      ],
+      depression: [
+        { id: 'dp_energy', category: 'support', prompt: 'What is the smallest act of care that feels doable (sip water, open a window, stretch)?' },
+        { id: 'dp_safety', category: 'safety', prompt: 'Is there any safety concern you want to name or plan for today?' },
+        { id: 'dp_tiny', category: 'make_or_break', prompt: 'If you shrank today to one tiny task, what would you pick?' },
+        { id: 'dp_support', category: 'support', prompt: 'Who could you lean on for a short check-in or message?' },
+        { id: 'dp_boundary', category: 'boundaries', prompt: 'What boundary protects your limited energy right now?' },
+        { id: 'dp_future', category: 'future_self', prompt: 'What would be kind to thank yourself for by tonight, however small?' },
+      ],
+      acceptance: [
+        { id: 'ac_values', category: 'make_or_break', prompt: 'Which value do you want to honor most in this chapter?' },
+        { id: 'ac_keep', category: 'patterns', prompt: 'What’s one thing you’d like to keep doing because it supports you?' },
+        { id: 'ac_release', category: 'non_negotiable', prompt: 'What’s one small thing you’re ready to release?' },
+        { id: 'ac_boundary', category: 'boundaries', prompt: 'What boundary keeps you steady while you meet reality as it is?' },
+        { id: 'ac_support', category: 'support', prompt: 'Who helps you stay grounded, and how might you include them this week?' },
+        { id: 'ac_next', category: 'future_self', prompt: 'What’s a gentle next step that aligns with what you know now?' },
+      ],
+    };
+
+    // Category templates: reusable prompts to blend dynamically with mood-specific ones
+    const categoryTemplates = {
+      make_or_break: [
+        'What feels most critical to address first, given what you shared?',
+        'If you chose one small lever today, what would it be?',
+        'Where do you want to aim your limited energy right now?'
+      ],
+      patterns: [
+        'What patterns are repeating—and what shifts when you name them?',
+        'When this happens, what do you usually do next? What else is possible?',
+        'If you mapped this cycle, where could you insert a breath or boundary?'
+      ],
+      boundaries: [
+        'Which boundary matters most today, and how will you protect it?',
+        'Where was a line crossed recently, and what response feels right now?',
+        'What limit supports your safety and values here?'
+      ],
+      safety: [
+        'Is there any step to make things safer or steadier before anything else?',
+        'How emotionally and physically safe do you feel right now?',
+        'If you needed support, what would be your first move?'
+      ],
+      support: [
+        'Who could witness this with care—no fixing—to help you feel less alone?',
+        'What connection or resource could you lean on today?',
+        'If you sent one honest message, what would it say?'
+      ],
+      future_self: [
+        'By tonight, what tiny act would your future self thank you for?',
+        'What would moving this forward by 5% look like?',
+        'What is one gentle next step aligned with your values?'
+      ],
+    };
+
+    let questions = [];
+    let latestThemes = null;
+
+  // Build a summary of recent history to inform dynamic question generation
+  async function buildHistorySummary(limit = 6) {
+    try {
+      const items = await getHistory(limit);
+      const texts = [];
+      const themes = {};
+      for (const it of items) {
+        const combined = (summarizeAnswers(it.answers || '') + '\n' + (it.message || '')).toLowerCase();
+        const t = detectTheme(combined);
+        themes[t] = (themes[t] || 0) + 1;
+        if (it.message) texts.push(it.message);
+      }
+      return { text: texts.join('\n'), themes };
+    } catch {
+      return { text: '', themes: latestThemes || {} };
+    }
+  }
+
+  // Generate a varied, history-related set of questions regardless of mood
+  function generateDynamicQuestions(mood, summary) {
+    const base = (questionsByMood[mood] || []).map(q => ({ ...q }));
+    const tKeys = Object.keys(summary?.themes || {}).sort((a, b) => (summary.themes[b] || 0) - (summary.themes[a] || 0));
+    const priorityCats = [];
+    if (tKeys.includes('relationship')) priorityCats.push('patterns', 'boundaries');
+    if (tKeys.includes('loss')) priorityCats.push('support', 'future_self');
+    if (tKeys.includes('overwhelm')) priorityCats.push('make_or_break', 'support');
+    if (tKeys.includes('money')) priorityCats.push('non_negotiable');
+    if (tKeys.includes('health')) priorityCats.push('safety');
+
+    // Blend category templates into the pool
+    const pool = [...base];
+    Object.keys(categoryTemplates).forEach(cat => {
+      categoryTemplates[cat].forEach(p => {
+        pool.push({ id: `${cat}_${p.slice(0,8)}`.replace(/\W+/g,'_'), category: cat, prompt: p });
+      });
+    });
+
+    // Stable ordering: priority categories first
+    const ids = new Set(priorityCats);
+    const ordered = [
+      ...pool.filter(q => ids.has(q.category)),
+      ...pool.filter(q => !ids.has(q.category)),
     ];
+
+    // Pick a varied set and lightly tailor first question to last dominant theme
+    const picks = pickMany(ordered, 8);
+    if (tKeys[0] && picks[0]) {
+      picks[0] = { ...picks[0], prompt: `${picks[0].prompt} (You mentioned ${tKeys[0]} before—does it show up here?)` };
+    }
+    return picks;
+  }
 
   const titleByMood = {
     denial: "You're feeling Denial",
@@ -86,16 +209,63 @@
   // Wire mood buttons
   moodScreen.querySelectorAll('.mood-card').forEach(btn => {
     btn.addEventListener('click', () => {
-      currentMood = btn.dataset.mood;
+      const chosenMood = btn.dataset.mood;
+      currentMood = chosenMood;
         answers = {}; step = 0;
         qTitle.textContent = titleByMood[currentMood] || 'Let’s explore this together';
         messageArea.innerHTML = '';
         regenBtn.disabled = true;
+        setQuestionsForMood(chosenMood);
         setupQuestionStep();
         switchScreen('questions');
         qInput.focus();
     });
   });
+
+  async function aiGenerateQuestions(mood) {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      const base = window._HER_API_BASE || 'http://localhost:3001';
+      const res = await fetch(`${base}/api/questions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, mood }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`Questions API ${res.status}`);
+      const data = await res.json();
+      const qs = Array.isArray(data.questions) ? data.questions : [];
+      if (qs.length) return qs.map(q => ({ id: q.id, category: q.category || 'make_or_break', prompt: q.prompt }));
+      throw new Error('No questions');
+    } catch (e) {
+      clearTimeout(timeout);
+      throw e;
+    }
+  }
+
+  function setQuestionsForMood(mood) {
+    const base = questionsByMood[mood] || [];
+    // Immediate: use mood-specific as fallback
+    questions = base.map(q => ({ ...q }));
+    if (latestThemes) adaptQuestionsByHistory(latestThemes);
+    // Try AI-generated questions next; fall back to dynamic local generation
+    aiGenerateQuestions(mood).then(qs => {
+      if (Array.isArray(qs) && qs.length) {
+        questions = qs;
+        if (step === 0 && questionsScreen.classList.contains('active')) setupQuestionStep();
+      }
+    }).catch(() => {
+      buildHistorySummary().then(summary => {
+        const dyn = generateDynamicQuestions(mood, summary);
+        if (Array.isArray(dyn) && dyn.length) {
+          questions = dyn;
+          if (step === 0 && questionsScreen.classList.contains('active')) setupQuestionStep();
+        }
+      }).catch(() => {});
+    });
+  }
 
   backBtn.addEventListener('click', () => {
     currentMood = null;
@@ -142,11 +312,16 @@
         renderMessage(msg);
         regenBtn.disabled = false;
         // Save conversation (server if available; fallback local)
-        await saveConversation({ userId, mood: currentMood, answers, message: msg.body }).catch(() => {
+        const asked = Array.isArray(questions) ? questions.map(q => ({ id: q.id, category: q.category, prompt: q.prompt })) : [];
+        await saveConversation({ userId, mood: currentMood, answers, message: msg.body, questions: asked }).catch(() => {
           saveConversationLocal({ mood: currentMood, answers, message: msg.body });
         });
         // Refresh history panel
-        try { const h = await getHistory(5); renderHistory(h); } catch {}
+        try {
+          const h = await getHistory(5);
+          if (historyList) historyList._cache = h;
+          renderHistory(h);
+        } catch {}
         switchScreen('reason');
       } catch (err) {
         console.error(err);
@@ -332,6 +507,18 @@
   function truncate(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
   function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
   function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  function pickMany(arr, n) {
+    const out = [];
+    const seen = new Set();
+    const max = Math.min(n, arr.length);
+    let guard = 0;
+    while (out.length < max && guard++ < arr.length * 2) {
+      const x = arr[Math.floor(Math.random() * arr.length)];
+      const key = (x.id || '') + '|' + x.prompt;
+      if (!seen.has(key)) { seen.add(key); out.push(x); }
+    }
+    return out;
+  }
 
   // --- Persistence helpers ---
   function getOrCreateUserId() {
@@ -467,6 +654,8 @@
       if (!historyList._cache) return;
       const it = historyList._cache[idx];
       if (!it) return;
+      // Store context of the opened conversation for adaptive continuation
+      window._HER_last_context = it;
       currentMood = it.mood || null;
       renderMessage({ title: `A gentle note for ${capitalize(currentMood || '')}`, body: it.message || '' });
       regenBtn.disabled = !!it.message;
@@ -484,6 +673,31 @@
     });
   }
 
+  // Choose a new mood inside the chat to continue
+  if (continueMoods) {
+    continueMoods.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-mood]');
+      if (!btn) return;
+      const mood = btn.getAttribute('data-mood');
+      // Boost themes using last context for stronger personalization
+      const ctx = window._HER_last_context;
+      if (ctx) {
+        const txt = summarizeAnswers(ctx.answers || {}) + '\n' + (ctx.message || '');
+        const t = detectTheme(txt);
+        const boosted = { ...(latestThemes || {}) };
+        boosted[t] = (boosted[t] || 0) + 3; // boost weight for last context theme
+        latestThemes = boosted;
+      }
+      currentMood = mood;
+      answers = {}; step = 0;
+      qTitle.textContent = titleByMood[currentMood] || 'Let’s explore this together';
+      setQuestionsForMood(currentMood);
+      setupQuestionStep();
+      switchScreen('questions');
+      qInput.focus();
+    });
+  }
+
   // --- Adaptive questions ---
   // Make questions re-orderable by history themes
   function adaptQuestionsByHistory(themes) {
@@ -498,15 +712,39 @@
 
     const ids = new Set(priority);
     const reordered = [
-      ...questions.filter(q => ids.has(q.id)),
-      ...questions.filter(q => !ids.has(q.id)),
+      ...questions.filter(q => ids.has(q.category)),
+      ...questions.filter(q => !ids.has(q.category)),
     ];
     questions = reordered;
   }
 
-  // Fetch themes and adapt at startup (after splash shows)
+  // Fetch themes at startup; apply when a mood is selected
   showSplash();
-  fetchThemes().then(adaptQuestionsByHistory).catch(() => {});
+  fetchThemes().then(t => { latestThemes = t; }).catch(() => {});
+
+  // Rotate mood descriptions on home for variety
+  const moodDescBank = {
+    denial: [ 'It feels unreal or hard to accept.', 'Taking it slowly is okay.', 'Gentle orientation helps.' ],
+    anger: [ 'Frustration, resentment, or rage.', 'Name the need underneath.', 'Pause widens choice.' ],
+    bargaining: [ '"If only" thoughts and what‑ifs.', 'Shift toward influence.', 'Small commitments matter.' ],
+    depression: [ 'Heavy sadness, loss of energy.', 'Shrink the day to tiny steps.', 'You don’t have to carry it alone.' ],
+    acceptance: [ 'Grounded with room to heal.', 'Meet reality with care.', 'Choose one kind next step.' ],
+  };
+
+  function startMoodDescRotation() {
+    const cards = moodScreen.querySelectorAll('.mood-card');
+    function update() {
+      cards.forEach(card => {
+        const mood = card.dataset.mood;
+        const descEl = card.querySelector('.mood-desc');
+        const bank = moodDescBank[mood] || [descEl?.textContent || '' ];
+        if (descEl) descEl.textContent = pick(bank);
+      });
+    }
+    update();
+    setInterval(update, 20000);
+  }
+  startMoodDescRotation();
 
   // After splash and theme load, also load history initially
   (async () => {

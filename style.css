@@ -215,6 +215,21 @@ button { font: inherit; }
   .history-list { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* Continue panel (start a new check-in within chat) */
+.continue { margin-top: 16px; }
+.continue-moods { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mood-chip {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid color-mix(in oklab, var(--primary) 28%, transparent);
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mood-chip:hover { border-color: color-mix(in oklab, var(--accent) 35%, transparent); }
+.mood-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
 /* Screen reader only */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 

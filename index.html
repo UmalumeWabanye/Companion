@@ -102,6 +102,18 @@
         <button id="regen-btn" class="secondary" disabled>Regenerate</button>
       </div>
 
+      <!-- Continue conversation from here: pick a new mood -->
+      <section id="continue-section" class="continue" aria-labelledby="continue-title">
+        <h4 id="continue-title" class="muted">Start a new check‑in from here</h4>
+        <div id="continue-moods" class="continue-moods" role="list">
+          <button class="mood-chip" role="listitem" data-mood="denial">Denial</button>
+          <button class="mood-chip" role="listitem" data-mood="anger">Anger</button>
+          <button class="mood-chip" role="listitem" data-mood="bargaining">Bargaining</button>
+          <button class="mood-chip" role="listitem" data-mood="depression">Depression</button>
+          <button class="mood-chip" role="listitem" data-mood="acceptance">Acceptance</button>
+        </div>
+      </section>
+
       <div id="message-area" class="message-area" aria-live="polite" aria-atomic="true"></div>
       <p class="disclaimer">This tool offers supportive messages and is not a substitute for professional care. If you're in crisis, please seek local emergency support.</p>
     </section>
