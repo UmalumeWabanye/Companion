@@ -281,6 +281,8 @@
 
     qNextBtn.addEventListener('click', () => {
       saveAnswer();
+      // Adapt upcoming questions based on the response before advancing
+      adaptQuestionsByResponses(answers);
       step++;
       setupQuestionStep();
     });
@@ -716,6 +718,85 @@
       ...questions.filter(q => !ids.has(q.category)),
     ];
     questions = reordered;
+  }
+
+  // Follow-up templates for tailoring next question based on the latest response
+  const followUpTemplates = {
+    general: [
+      'Right now, what feels different compared to earlier today?',
+      'What tiny step have you tried or considered so far?',
+      'What feels a little clearer after naming this?',
+    ],
+    relationship: [
+      'What have you learned about your needs in this relationship?',
+      'What boundary would respect you here today?',
+      'What support helps you meet this with care now?',
+    ],
+    loss: [
+      'What have you been able to accept, even a little?',
+      'What small act of care helped, or could help, today?',
+      'Who could gently witness this with you?',
+    ],
+    overwhelm: [
+      'If you shrink this to one step, what would it be?',
+      'What would make today feel 5% lighter?',
+      'Where could a boundary or pause help right now?',
+    ],
+    money: [
+      'What single action would ease pressure today?',
+      'Who or what resource could help with this?',
+      'What limit protects your stability here?',
+    ],
+    health: [
+      'Is there any safety step you want to take first?',
+      'What support or care feels doable today?',
+      'What would honoring your body look like right now?',
+    ],
+  };
+
+  function nextFollowUp(theme) {
+    const bank = followUpTemplates[theme] || followUpTemplates.general;
+    return pick(bank);
+  }
+
+  // Reorder remaining questions and insert a targeted follow-up based on latest response
+  function adaptQuestionsByResponses(ans) {
+    try {
+      // Determine last answered question
+      const answeredKeys = Object.keys(ans || {});
+      if (!answeredKeys.length) return;
+      const lastKey = answeredKeys[answeredKeys.length - 1];
+      const lastAnswer = ans[lastKey] || '';
+      const theme = detectTheme(lastAnswer);
+
+      // Build priority categories from the theme
+      const priorityCats = [];
+      if (theme === 'relationship') priorityCats.push('patterns', 'boundaries');
+      if (theme === 'loss') priorityCats.push('support', 'future_self');
+      if (theme === 'overwhelm') priorityCats.push('make_or_break', 'support');
+      if (theme === 'money') priorityCats.push('non_negotiable');
+      if (theme === 'health') priorityCats.push('safety');
+
+      const ids = new Set(priorityCats);
+      // Only reorder the remaining slice after current step
+      const head = questions.slice(0, step + 1);
+      const tail = questions.slice(step + 1);
+      const reorderedTail = [
+        ...tail.filter(q => ids.has(q.category)),
+        ...tail.filter(q => !ids.has(q.category)),
+      ];
+
+      // Insert a direct follow-up next (avoid duplicates)
+      const fuPrompt = nextFollowUp(theme);
+      const followUp = { id: `fu_${Date.now()}`, category: priorityCats[0] || 'make_or_break', prompt: fuPrompt };
+      // Prevent immediate duplicate prompts
+      const existingNext = reorderedTail[0];
+      if (!existingNext || (existingNext && existingNext.prompt !== fuPrompt)) {
+        reorderedTail.unshift(followUp);
+      }
+
+      questions = head.concat(reorderedTail);
+    } catch {}
   }
 
   // Fetch themes at startup; apply when a mood is selected
