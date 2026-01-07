@@ -1,0 +1,68 @@
+{
+  "order": ["happy", "surprise", "fear", "anger", "disgust", "sad"],
+  "labels": {
+    "happy": {
+      "secondaries": ["joyful", "interested", "proud", "accepted", "powerful", "peaceful"],
+      "tertiaries": [
+        ["ecstatic", "elated"],
+        ["inquisitive", "curious"],
+        ["successful", "confident"],
+        ["fulfilled", "respected"],
+        ["courageous", "provocative"],
+        ["loving", "hopeful"]
+      ]
+    },
+    "surprise": {
+      "secondaries": ["startled", "confused", "amazed"],
+      "tertiaries": [
+        ["shocked", "frightened"],
+        ["dismayed", "disillusioned"],
+        ["perplexed", "astonished"]
+      ]
+    },
+    "fear": {
+      "secondaries": ["scared", "anxious", "insecure", "submissive", "humiliated", "rejected"],
+      "tertiaries": [
+        ["terrified", "frightened"],
+        ["worried", "overwhelmed"],
+        ["inadequate", "inferior"],
+        ["subservient", "insignificant"],
+        ["worthless", "inadequate"],
+        ["disrespected", "alienated"]
+      ]
+    },
+    "anger": {
+      "secondaries": ["aggressive", "frustrated", "distant", "irritated", "critical", "hostile"],
+      "tertiaries": [
+        ["provoked", "enraged"],
+        ["provoked", "annoyed"],
+        ["distant", "withdrawn"],
+        ["irritated", "infuriated"],
+        ["judgmental", "sarcastic"],
+        ["hostile", "resentful"]
+      ]
+    },
+    "disgust": {
+      "secondaries": ["disapproval", "awful", "repulsed", "revolted", "loathing", "skeptical"],
+      "tertiaries": [
+        ["judgmental", "critical"],
+        ["awful", "detestable"],
+        ["repugnant", "revolting"],
+        ["revulsion", "aversion"],
+        ["loathing", "hatred"],
+        ["skeptical", "suspicious"]
+      ]
+    },
+    "sad": {
+      "secondaries": ["guilty", "abandoned", "despair", "depressed", "lonely", "bored"],
+      "tertiaries": [
+        ["remorseful", "ashamed"],
+        ["ignored", "victimized"],
+        ["powerless", "vulnerable"],
+        ["inferior", "empty"],
+        ["abandoned", "isolated"],
+        ["apathetic", "indifferent"]
+      ]
+    }
+  }
+}

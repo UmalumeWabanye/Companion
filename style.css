@@ -230,6 +230,33 @@ button { font: inherit; }
 .mood-chip:hover { border-color: color-mix(in oklab, var(--accent) 35%, transparent); }
 .mood-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 
+/* Emotion picker */
+.emotions { margin-top: 8px; }
+/* Emotion wheel container */
+.emotion-wheel {
+  position: relative;
+  width: min(380px, 88vw);
+  aspect-ratio: 1 / 1;
+  margin: 12px auto 8px;
+  border-radius: 50%;
+  box-shadow: var(--shadow);
+}
+/* SVG specific styling */
+.wheel-svg { width: 100%; height: 100%; display: block; }
+.wheel-svg .seg { stroke: rgba(0,0,0,0.12); stroke-width: 1; cursor: pointer; transition: filter .18s ease, transform .18s ease; }
+.wheel-svg .seg:hover { filter: brightness(1.05); }
+.wheel-svg .seg.selected { stroke: var(--focus); stroke-width: 2; filter: saturate(1.1) brightness(1.06); }
+
+/* Wheel labels */
+.wheel-svg .label { fill: #121212; user-select: none; pointer-events: auto; cursor: pointer; paint-order: stroke; stroke: rgba(0,0,0,0.35); stroke-width: 1px; }
+.wheel-svg .label-primary { font-weight: 700; font-size: 11px; }
+.wheel-svg .label-secondary { font-weight: 600; font-size: 10px; }
+.wheel-svg .label-tertiary text { font-weight: 500; font-size: 9.5px; }
+.wheel-svg .label.selected text,
+.wheel-svg .label.selected { fill: #0b1020; }
+.wheel-svg .label.selected ~ .seg,
+.wheel-svg .seg.selected { outline: none; }
+
 /* Screen reader only */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
@@ -258,6 +285,9 @@ button { font: inherit; }
     box-shadow: 0 -8px 18px rgba(0,0,0,0.18);
     border-top-left-radius: 12px; border-top-right-radius: 12px;
   }
+  /* Slightly smaller ring labels on small screens for fit */
+  .wheel-svg .label-secondary { font-size: 9px; }
+  .wheel-svg .label-tertiary text { font-size: 8.5px; }
 }
 
 @media (min-width: 481px) and (max-width: 768px) {

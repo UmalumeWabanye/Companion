@@ -36,29 +36,20 @@
 
     <!-- Mood selection screen -->
     <section id="mood-screen" class="screen active" aria-labelledby="mood-screen-title">
-      <h2 id="mood-screen-title" class="sr-only">Select a mood</h2>
-      <div class="mood-grid" role="list">
-        <button class="mood-card" role="listitem" data-mood="denial">
-          <span class="mood-title">Denial</span>
-          <span class="mood-desc">It feels unreal or hard to accept.</span>
-        </button>
-        <button class="mood-card" role="listitem" data-mood="anger">
-          <span class="mood-title">Anger</span>
-          <span class="mood-desc">Frustration, resentment, or rage.</span>
-        </button>
-        <button class="mood-card" role="listitem" data-mood="bargaining">
-          <span class="mood-title">Bargaining</span>
-          <span class="mood-desc">"If only" thoughts and what-ifs.</span>
-        </button>
-        <button class="mood-card" role="listitem" data-mood="depression">
-          <span class="mood-title">Depression</span>
-          <span class="mood-desc">Heavy sadness, loss of energy.</span>
-        </button>
-        <button class="mood-card" role="listitem" data-mood="acceptance">
-          <span class="mood-title">Acceptance</span>
-          <span class="mood-desc">Grounded with room to heal.</span>
-        </button>
-      </div>
+      <h2 id="mood-screen-title" class="sr-only">Select how you feel</h2>
+      <!-- Emotion Wheel (clickable) -->
+      <section id="emotion-section" class="emotions" aria-labelledby="emotion-title">
+        <div class="reason-header">
+          <h3 id="emotion-title">How are you feeling?</h3>
+          <span class="muted" style="margin-left:auto">Tap wedges to pick one or more</span>
+        </div>
+        <div id="emotion-wheel" class="emotion-wheel" role="group" aria-label="Emotion wheel">
+          <svg id="emotion-wheel-svg" class="wheel-svg" viewBox="0 0 360 360" width="360" height="360" aria-hidden="false" role="img"></svg>
+        </div>
+        <div class="actions">
+          <button id="start-emotions-btn" class="primary" disabled>Start check‑in</button>
+        </div>
+      </section>
 
       <!-- Recent history -->
       <section id="history-section" class="history" aria-labelledby="history-title">
@@ -105,12 +96,8 @@
       <!-- Continue conversation from here: pick a new mood -->
       <section id="continue-section" class="continue" aria-labelledby="continue-title">
         <h4 id="continue-title" class="muted">Start a new check‑in from here</h4>
-        <div id="continue-moods" class="continue-moods" role="list">
-          <button class="mood-chip" role="listitem" data-mood="denial">Denial</button>
-          <button class="mood-chip" role="listitem" data-mood="anger">Anger</button>
-          <button class="mood-chip" role="listitem" data-mood="bargaining">Bargaining</button>
-          <button class="mood-chip" role="listitem" data-mood="depression">Depression</button>
-          <button class="mood-chip" role="listitem" data-mood="acceptance">Acceptance</button>
+        <div class="continue-moods" role="list">
+          <button id="continue-with-emotions-btn" class="secondary">Use previous emotions</button>
         </div>
       </section>
 

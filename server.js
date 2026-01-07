@@ -6,6 +6,9 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
@@ -37,11 +40,18 @@ try {
 } catch (e) {
   // ignore if column exists
 }
+// Add emotions column if missing
+try {
+  db.exec(`ALTER TABLE conversations ADD COLUMN emotions TEXT`);
+} catch (e) {
+  // ignore if column exists
+}
 
 const upsertUser = db.prepare('INSERT OR IGNORE INTO users (id) VALUES (?)');
-const insertConv = db.prepare('INSERT INTO conversations (user_id, mood, answers, message, questions) VALUES (?, ?, ?, ?, ?)');
-const getConvsByUser = db.prepare('SELECT id, mood, answers, message, questions, created_at FROM conversations WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?');
-const getAllConvsByUser = db.prepare('SELECT mood, answers, message, questions FROM conversations WHERE user_id = ?');
+const insertConv = db.prepare('INSERT INTO conversations (user_id, mood, emotions, answers, message, questions) VALUES (?, ?, ?, ?, ?, ?)');
+const getConvsByUser = db.prepare('SELECT id, mood, emotions, answers, message, questions, created_at FROM conversations WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?');
+const getAllConvsByUser = db.prepare('SELECT mood, emotions, answers, message, questions FROM conversations WHERE user_id = ?');
+const getAllConvsByUserWithDate = db.prepare('SELECT questions, created_at FROM conversations WHERE user_id = ? ORDER BY created_at DESC');
 
 // Utility: detect theme (mirror client)
 function detectTheme(text) {
@@ -62,12 +72,13 @@ function detectTheme(text) {
 // --- API: Save conversation ---
 app.post('/api/conversation', (req, res) => {
   try {
-    const { userId, mood, answers, message, questions } = req.body || {};
+    const { userId, mood, emotions, answers, message, questions } = req.body || {};
     if (!userId || !mood) return res.status(400).json({ error: 'userId and mood required' });
     upsertUser.run(userId);
     const answersStr = typeof answers === 'string' ? answers : JSON.stringify(answers || {});
     const questionsStr = typeof questions === 'string' ? questions : (questions ? JSON.stringify(questions) : null);
-    insertConv.run(userId, mood, answersStr, message || null, questionsStr);
+    const emotionsStr = Array.isArray(emotions) ? JSON.stringify(emotions) : (typeof emotions === 'string' ? emotions : null);
+    insertConv.run(userId, mood, emotionsStr, answersStr, message || null, questionsStr);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -114,81 +125,110 @@ app.post('/api/themes', (req, res) => {
   }
 });
 
+// --- Fixed Catalog: load and serve non-repeating questions ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const catalogPath = path.join(__dirname, 'data', 'questions.json');
+let QUESTIONS_CATALOG = [];
+try {
+  const raw = fs.readFileSync(catalogPath, 'utf8');
+  QUESTIONS_CATALOG = JSON.parse(raw);
+} catch (e) {
+  console.warn('Questions catalog missing or invalid at', catalogPath);
+  QUESTIONS_CATALOG = [];
+}
+
+function getAskedMeta(userId) {
+  const rows = getAllConvsByUserWithDate.all(userId);
+  const meta = new Map(); // id -> { count, lastTs }
+  for (const r of rows) {
+    let arr = [];
+    try {
+      arr = JSON.parse(r.questions || '[]');
+    } catch {}
+    if (!Array.isArray(arr)) continue;
+    const ts = Date.parse(r.created_at || '');
+    for (const q of arr) {
+      const id = q?.id;
+      if (!id) continue;
+      const prev = meta.get(id) || { count: 0, lastTs: 0 };
+      const lastTs = Math.max(prev.lastTs, isNaN(ts) ? 0 : ts);
+      meta.set(id, { count: prev.count + 1, lastTs });
+    }
+  }
+  return meta;
+}
+
+function selectFromCatalog({ userId, mood, emotions = [], limit = 8, lastContextText = '' }) {
+  const meta = getAskedMeta(userId);
+  const now = Date.now();
+  const COOL_DOWN_MS = Math.floor(3.5 * 7 * 24 * 60 * 60 * 1000); // 3.5 weeks
+  const theme = detectTheme(lastContextText);
+  const priorityCats = [];
+  if (theme === 'relationship') priorityCats.push('patterns', 'boundaries');
+  if (theme === 'loss') priorityCats.push('support', 'future_self');
+  if (theme === 'overwhelm') priorityCats.push('make_or_break', 'support');
+  if (theme === 'money') priorityCats.push('non_negotiable');
+  if (theme === 'health') priorityCats.push('safety');
+  const prioritySet = new Set(priorityCats);
+
+  // Filter by emotions/tags or mood (include general "all")
+  const selected = Array.isArray(emotions) ? emotions.map(s => String(s).toLowerCase()) : [];
+  const byMood = QUESTIONS_CATALOG.filter(q => {
+    const tags = (q.tags || []).map(s => String(s).toLowerCase());
+    const moods = (q.moods || []).map(s => String(s).toLowerCase());
+    const hasAll = tags.includes('all') || moods.includes('all');
+    const moodMatch = mood ? moods.includes(String(mood).toLowerCase()) : false;
+    const tagMatch = selected.length ? selected.some(e => tags.includes(e)) : false;
+    return hasAll || moodMatch || tagMatch;
+  });
+
+  // Enforce cooldown: drop questions asked within the last 3.5 weeks
+  const eligible = byMood.filter(q => {
+    const m = meta.get(q.id);
+    if (!m) return true; // never asked
+    if (!m.lastTs) return true;
+    return (now - m.lastTs) >= COOL_DOWN_MS;
+  });
+
+  // Sort eligible by: priority category first, then fewest asked count, then ID for stability
+  eligible.sort((a, b) => {
+    const prioA = prioritySet.has(a.category) ? 0 : 1;
+    const prioB = prioritySet.has(b.category) ? 0 : 1;
+    if (prioA !== prioB) return prioA - prioB;
+    const ca = (meta.get(a.id)?.count) || 0;
+    const cb = (meta.get(b.id)?.count) || 0;
+    if (ca !== cb) return ca - cb;
+    return a.id.localeCompare(b.id);
+  });
+
+  // Prefer unseen among eligible, then the rest of eligible
+  const unseen = eligible.filter(q => ((meta.get(q.id)?.count) || 0) === 0);
+  const seen = eligible.filter(q => ((meta.get(q.id)?.count) || 0) > 0);
+  const pick = [];
+  for (const q of unseen) { if (pick.length < limit) pick.push(q); }
+  for (const q of seen) { if (pick.length < limit) pick.push(q); }
+  return pick.slice(0, limit).map(q => ({ id: q.id, category: q.category, prompt: q.prompt }));
+}
+
 // --- API: AI-generated questions for a revisiting session ---
+// Return fixed, non-repeating questions from catalog
 app.post('/api/questions', async (req, res) => {
   try {
-    const { userId, mood } = req.body || {};
-    if (!userId || !mood) return res.status(400).json({ error: 'userId and mood required' });
-
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return res.status(503).json({ error: 'ai_unavailable', message: 'AI backend not configured' });
-    }
-
-    // Pull the most recent conversation for context
+    const { userId, mood, emotions } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId required' });
     const last = getConvsByUser.all(userId, 1, 0)[0];
-    let lastAnswersText = '';
-    let lastQuestionsText = '';
-    let lastMessageText = '';
-    let lastMood = '';
+    let lastText = '';
     if (last) {
-      lastMood = String(last.mood || '');
       try {
         const obj = JSON.parse(last.answers || '{}');
-        lastAnswersText = Object.entries(obj).map(([k,v]) => `${k}: ${v}`).join('\n');
-      } catch {
-        lastAnswersText = String(last.answers || '');
-      }
-      try {
-        const qobj = JSON.parse(last.questions || '[]');
-        lastQuestionsText = Array.isArray(qobj) ? qobj.map(q => q.prompt || String(q)).join('\n') : '';
-      } catch { lastQuestionsText = ''; }
-      lastMessageText = String(last.message || '');
+        lastText = Object.values(obj).join('\n');
+      } catch { lastText = String(last.answers || ''); }
+      if (!lastText) lastText = String(last.message || '');
     }
-
-    // Compose prompt for structured JSON output
-    const system = `You are a warm, grounded therapist facilitating a brief revisiting session. You generate 6–8 short, human questions based on the user's current mood and their last recorded conversation. Focus on: changes since last time (feeling now vs. then), what they have done/learned/accepted, boundaries, support, safety, and one tiny next step. Questions must be concise, actionable, and not repetitive.`;
-    const user = {
-      mood,
-      lastMood,
-      lastAnswers: lastAnswersText,
-      lastQuestions: lastQuestionsText,
-      lastMessage: lastMessageText,
-      guidance: 'Return JSON with {"questions":[{"id":"string","category":"make_or_break|patterns|boundaries|safety|support|future_self|non_negotiable","prompt":"string"}...]}. Keep prompts 10–20 words. No extra text.'
-    };
-
-    const client = new OpenAI({ apiKey });
-    const completion = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: JSON.stringify(user) },
-      ],
-      temperature: 0.7,
-      response_format: { type: 'json_object' }
-    });
-
-    const raw = completion.choices?.[0]?.message?.content?.trim();
-    if (!raw) return res.status(502).json({ error: 'no content' });
-    let parsed;
-    try { parsed = JSON.parse(raw); } catch {
-      // try to extract array if model returned it directly
-      parsed = { questions: [] };
-    }
-    const qs = Array.isArray(parsed.questions) ? parsed.questions : [];
-    // Minimal validation and fallback
-    const cleaned = qs
-      .filter(q => q && q.prompt)
-      .slice(0, 8)
-      .map((q, i) => ({
-        id: String(q.id || `q_${i+1}`),
-        category: String(q.category || 'make_or_break'),
-        prompt: String(q.prompt).trim()
-      }));
-    if (!cleaned.length) {
-      return res.status(502).json({ error: 'empty_questions' });
-    }
-    res.json({ questions: cleaned });
+    const pick = selectFromCatalog({ userId, mood, emotions: Array.isArray(emotions) ? emotions : [], limit: 8, lastContextText: lastText });
+    if (!pick.length) return res.status(404).json({ error: 'no_questions_available' });
+    res.json({ questions: pick });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'questions_failed' });
@@ -227,7 +267,7 @@ app.post('/api/generate', async (req, res) => {
     // Save if userId provided
     if (userId) {
       upsertUser.run(userId);
-      insertConv.run(userId, mood, JSON.stringify({ summary: reason || '' }), message, null);
+      insertConv.run(userId, mood, null, JSON.stringify({ summary: reason || '' }), message, null);
     }
     res.json({ message });
   } catch (err) {

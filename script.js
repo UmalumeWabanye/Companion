@@ -32,6 +32,12 @@
     splashTimerId = setTimeout(hideSplash, 40000);
   }
   const moodScreen = document.getElementById('mood-screen');
+  // Emotion-first UI hooks
+  const emotionPicker = document.getElementById('emotion-picker');
+  const emotionWheel = document.getElementById('emotion-wheel');
+  const emotionWheelSvg = document.getElementById('emotion-wheel-svg');
+  const startEmotionsBtn = document.getElementById('start-emotions-btn');
+  const continueWithEmotionsBtn = document.getElementById('continue-with-emotions-btn');
   const reasonScreen = document.getElementById('reason-screen');
   const reasonTitle = document.getElementById('reason-title');
   const reasonInput = document.getElementById('reason-input');
@@ -58,6 +64,7 @@
 
   let currentMood = null;
     let answers = {};
+    let selectedEmotions = [];
     let step = 0;
     let lastReason = '';
     const userId = getOrCreateUserId();
@@ -211,6 +218,7 @@
     btn.addEventListener('click', () => {
       const chosenMood = btn.dataset.mood;
       currentMood = chosenMood;
+        selectedEmotions = [];
         answers = {}; step = 0;
         qTitle.textContent = titleByMood[currentMood] || 'Let’s explore this together';
         messageArea.innerHTML = '';
@@ -222,7 +230,43 @@
     });
   });
 
+  function emotionsFromMood(mood) {
+    switch ((mood || '').toLowerCase()) {
+      case 'anger': return ['anger'];
+      case 'depression': return ['sadness'];
+      case 'bargaining': return ['anticipation','trust'];
+      case 'denial': return ['surprise','fear'];
+      case 'acceptance': return ['trust','joy'];
+      default: return [];
+    }
+  }
+
   async function aiGenerateQuestions(mood) {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      const base = window._HER_API_BASE || 'http://localhost:3001';
+      const emotions = emotionsFromMood(mood);
+      const res = await fetch(`${base}/api/questions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, mood, emotions }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`Questions API ${res.status}`);
+      const data = await res.json();
+      const qs = Array.isArray(data.questions) ? data.questions : [];
+      if (qs.length) return qs.map(q => ({ id: q.id, category: q.category || 'make_or_break', prompt: q.prompt }));
+      throw new Error('No questions');
+    } catch (e) {
+      clearTimeout(timeout);
+      throw e;
+    }
+  }
+
+  // Emotion-first: fetch questions by emotions only (no mood)
+  async function aiGenerateQuestionsByEmotions(emotions) {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), 6000);
     try {
@@ -230,7 +274,7 @@
       const res = await fetch(`${base}/api/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, mood }),
+        body: JSON.stringify({ userId, emotions: normalizeEmotions(Array.isArray(emotions) ? emotions : []) }),
         signal: ctrl.signal,
       });
       clearTimeout(timeout);
@@ -267,11 +311,310 @@
     });
   }
 
+  // Emotion-first: set questions using selected emotions; fallback to dynamic neutral set
+  function setQuestionsForEmotions(emotions) {
+    questions = [];
+    if (latestThemes) adaptQuestionsByHistory(latestThemes);
+    aiGenerateQuestionsByEmotions(emotions).then(qs => {
+      if (Array.isArray(qs) && qs.length) {
+        questions = qs;
+        if (step === 0 && questionsScreen.classList.contains('active')) setupQuestionStep();
+      }
+    }).catch(() => {
+      buildHistorySummary().then(summary => {
+        const dyn = generateDynamicQuestions('acceptance', summary);
+        if (Array.isArray(dyn) && dyn.length) {
+          questions = dyn;
+          if (step === 0 && questionsScreen.classList.contains('active')) setupQuestionStep();
+        }
+      }).catch(() => {});
+    });
+  }
+
   backBtn.addEventListener('click', () => {
     currentMood = null;
     messageArea.innerHTML = '';
     switchScreen('mood');
   });
+
+  // Emotion picker wiring
+  if (emotionPicker) {
+    emotionPicker.addEventListener('click', (e) => {
+      const chip = e.target.closest('.emotion-chip');
+      if (!chip) return;
+      const val = String(chip.getAttribute('data-emotion') || '').toLowerCase();
+      chip.classList.toggle('selected');
+      const set = new Set((selectedEmotions || []).map(s => String(s).toLowerCase()));
+      if (chip.classList.contains('selected')) set.add(val); else set.delete(val);
+      selectedEmotions = Array.from(set);
+      if (startEmotionsBtn) startEmotionsBtn.disabled = selectedEmotions.length === 0;
+    });
+  }
+
+  // Emotion wheel wiring is attached directly on created elements in the builder
+
+  // Load wheel dataset and build a precise 3-ring, 6-sector SVG wheel with labels
+  async function loadWheelData() {
+    try {
+      const res = await fetch('./data/wheel.json', { cache: 'no-cache' });
+      if (!res.ok) throw new Error('wheel.json not found');
+      return await res.json();
+    } catch (e) {
+      // Fallback minimal structure
+      return { order: ['happy','surprise','fear','anger','disgust','sad'], labels: {} };
+    }
+  }
+
+  function buildEmotionWheelFromData(data) {
+    if (!emotionWheelSvg) return;
+    const cx = 180, cy = 180;
+    // Radii for rings (inner..outer)
+    const rings = [
+      // Fill to center: remove inner white circle by starting at r0 = 0
+      { r0: 0, r1: 100, cls: 'ring-inner' },
+      { r0: 100, r1: 140, cls: 'ring-mid' },
+      { r0: 140, r1: 175, cls: 'ring-outer' },
+    ];
+    const emotionsOrder = Array.isArray(data?.order) && data.order.length ? data.order : ['happy','surprise','fear','anger','disgust','sad'];
+    const labels = data?.labels || {};
+    const palette = {
+      happy: '#f5c84b', surprise: '#8bd2f0', fear: '#6c7db3', anger: '#b55b5b', disgust: '#ca8ed1', sad: '#5aa0d1'
+    };
+  const toRad = (deg) => (deg - 90) * Math.PI / 180; // rotate so 0° is up
+    const pc = (r, ang) => ({ x: cx + r * Math.cos(toRad(ang)), y: cy + r * Math.sin(toRad(ang)) });
+    const sectorPath = (r0, r1, a0, a1) => {
+      const large = (a1 - a0) > 180 ? 1 : 0;
+      const p1 = pc(r1, a0);
+      const p2 = pc(r1, a1);
+      if (r0 <= 0.1) {
+        // Wedge to center (no inner arc)
+        return [
+          `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`,
+          `A ${r1} ${r1} 0 ${large} 1 ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`,
+          `L ${cx.toFixed(2)} ${cy.toFixed(2)}`,
+          'Z'
+        ].join(' ');
+      }
+      const p3 = pc(r0, a1);
+      const p4 = pc(r0, a0);
+      return [
+        `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`,
+        `A ${r1} ${r1} 0 ${large} 1 ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`,
+        `L ${p3.x.toFixed(2)} ${p3.y.toFixed(2)}`,
+        `A ${r0} ${r0} 0 ${large} 0 ${p4.x.toFixed(2)} ${p4.y.toFixed(2)}`,
+        'Z'
+      ].join(' ');
+    };
+
+    // Estimate and fit text on a path by adjusting font-size and textLength
+    function fitText(textElem, textPath, textStr, arcLen, opts = {}) {
+      const base = opts.base || 10; // px
+      const min = opts.min || 8;
+      const max = opts.max || 12;
+      // Rough width estimate per character at a given font-size
+      // Inter assumes ~0.55em avg width per glyph
+      const estPerChar = 0.55; // ems
+      let size = base;
+      const estWidth = (sz) => textStr.length * estPerChar * sz; // px
+      // Shrink if needed
+      while (estWidth(size) > (arcLen - 10) && size > min) size -= 0.5;
+      // Grow a touch if much smaller than arc
+      while (estWidth(size) < (arcLen - 24) && size < max) size += 0.5;
+      size = Math.max(min, Math.min(max, size));
+      textElem.style.fontSize = `${size}px`;
+      // Constrain the path layout to arcLen minus small padding
+      const targetLen = Math.max(arcLen - 8, 20);
+      textPath.setAttribute('textLength', targetLen.toFixed(0));
+      textPath.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    }
+
+    // Helpers to toggle selection for an entire primary
+    function setPrimarySelected(emo, on) {
+      const segs = emotionWheelSvg.querySelectorAll(`.seg[data-emotion="${emo}"]`);
+      segs.forEach(s => {
+        s.classList.toggle('selected', on);
+        s.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      const labelsEls = emotionWheelSvg.querySelectorAll(`.label[data-emotion="${emo}"]`);
+      labelsEls.forEach(l => l.classList.toggle('selected', on));
+      const set = new Set((selectedEmotions || []).map(s => String(s).toLowerCase()));
+      if (on) set.add(emo); else set.delete(emo);
+      selectedEmotions = Array.from(set);
+      if (startEmotionsBtn) startEmotionsBtn.disabled = selectedEmotions.length === 0;
+    }
+
+    // Clear any existing content
+    while (emotionWheelSvg.firstChild) emotionWheelSvg.removeChild(emotionWheelSvg.firstChild);
+
+    // Draw rings and segments
+    const step = 360 / emotionsOrder.length; // 60 degrees
+    // Create defs for text paths
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    emotionWheelSvg.appendChild(defs);
+
+    emotionsOrder.forEach((emo, i) => {
+      const start = i * step;
+      const end = start + step;
+      // background segments for each ring
+      rings.forEach((ring, ringIdx) => {
+        const d = sectorPath(ring.r0, ring.r1, start, end);
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', d);
+        path.setAttribute('class', `seg ${emo} ${ring.cls}`);
+        const base = palette[emo] || '#9aa5b1';
+        const lighten = ringIdx === 0 ? 0 : (ringIdx === 1 ? 6 : 12);
+        path.setAttribute('fill', base);
+        if (lighten) path.style.filter = `brightness(${1 + lighten/100})`;
+        path.setAttribute('data-emotion', emo);
+        path.setAttribute('tabindex', '0');
+        path.setAttribute('role', 'button');
+        path.setAttribute('aria-pressed', 'false');
+        // Click toggles whole primary
+        path.addEventListener('click', () => setPrimarySelected(emo, !path.classList.contains('selected')));
+        path.addEventListener('keydown', (ke) => {
+          if (ke.key === 'Enter' || ke.key === ' ') { ke.preventDefault(); setPrimarySelected(emo, !path.classList.contains('selected')); }
+        });
+        emotionWheelSvg.appendChild(path);
+      });
+
+      // Primary label near inner ring mid-angle
+      const midAng = start + (step / 2);
+      const labelR = (rings[0].r0 + rings[0].r1) / 2;
+      const lp = pc(labelR, midAng);
+      const pText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      pText.setAttribute('x', lp.x.toFixed(0));
+      pText.setAttribute('y', lp.y.toFixed(0));
+      pText.setAttribute('text-anchor', 'middle');
+      pText.setAttribute('dominant-baseline', 'middle');
+      pText.setAttribute('class', 'label label-primary');
+      pText.setAttribute('data-emotion', emo);
+      pText.setAttribute('aria-label', `${emo} primary`);
+      pText.setAttribute('tabindex', '0');
+      pText.addEventListener('click', () => setPrimarySelected(emo, !pText.classList.contains('selected')));
+      pText.addEventListener('keydown', (ke) => { if (ke.key === 'Enter' || ke.key === ' ') { ke.preventDefault(); setPrimarySelected(emo, !pText.classList.contains('selected')); } });
+      pText.textContent = emo === 'sad' ? 'Sad' : (emo.charAt(0).toUpperCase() + emo.slice(1));
+      emotionWheelSvg.appendChild(pText);
+
+      // Utility for arc paths used by curved text
+      const arcPath = (r, a0, a1) => {
+        const large = (a1 - a0) > 180 ? 1 : 0;
+        const p1 = pc(r, a0);
+        const p2 = pc(r, a1);
+        return [
+          `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`,
+          `A ${r} ${r} 0 ${large} 1 ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`
+        ].join(' ');
+      };
+
+      // Secondary labels (mid ring) as vertical rotated words, per-slot inside wedge
+      const secs = Array.isArray(labels[emo]?.secondaries) ? labels[emo].secondaries : [];
+      if (secs.length) {
+        const sCount = secs.length;
+        const sR = (rings[1].r0 + rings[1].r1) / 2;
+        const padDeg = 10; // avoid touching boundaries a bit more
+        const interDeg = 4; // spacing between vertical columns
+        const totalSpan = Math.max(0, (end - start) - 2 * padDeg - Math.max(0, (sCount - 1) * interDeg));
+        const slotSpan = sCount ? (totalSpan / sCount) : 0;
+        for (let si = 0; si < sCount; si++) {
+          const a0 = start + padDeg + si * (slotSpan + interDeg);
+          const a1 = a0 + slotSpan;
+          const mid = (a0 + a1) / 2;
+          const pt = pc(sR, mid);
+          const sText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          sText.setAttribute('class', 'label label-secondary');
+          sText.setAttribute('data-emotion', emo);
+          sText.setAttribute('tabindex', '0');
+          sText.setAttribute('text-anchor', 'middle');
+          sText.setAttribute('dominant-baseline', 'middle');
+          sText.setAttribute('x', pt.x.toFixed(0));
+          sText.setAttribute('y', pt.y.toFixed(0));
+          // Rotate text so it reads vertically along the radial direction of the wedge
+          sText.setAttribute('transform', `rotate(${(mid - 90).toFixed(2)} ${pt.x.toFixed(0)} ${pt.y.toFixed(0)})`);
+          sText.textContent = secs[si];
+          sText.addEventListener('click', () => setPrimarySelected(emo, !sText.classList.contains('selected')));
+          sText.addEventListener('keydown', (ke) => { if (ke.key === 'Enter' || ke.key === ' ') { ke.preventDefault(); setPrimarySelected(emo, !sText.classList.contains('selected')); } });
+          emotionWheelSvg.appendChild(sText);
+        }
+      }
+
+      // Tertiary pairs (outer ring) as two vertical rotated words per-slot
+      const ters = Array.isArray(labels[emo]?.tertiaries) ? labels[emo].tertiaries : [];
+      if (ters.length) {
+        const tCount = ters.length;
+        const padDeg = 10;
+        const interDeg = 3; // spacing between tertiary columns
+        const tCenter = (rings[2].r0 + rings[2].r1) / 2;
+        const radialGap = 12; // spacing between top/bottom rows
+        const topR = Math.max(rings[2].r0 + 6, tCenter - radialGap/2);
+        const botR = Math.min(rings[2].r1 - 6, tCenter + radialGap/2);
+        const totalSpan = Math.max(0, (end - start) - 2 * padDeg - Math.max(0, (tCount - 1) * interDeg));
+        const slotSpan = tCount ? (totalSpan / tCount) : 0;
+
+        for (let ti = 0; ti < tCount; ti++) {
+          const a0 = start + padDeg + ti * (slotSpan + interDeg);
+          const a1 = a0 + slotSpan;
+          const mid = (a0 + a1) / 2;
+
+          const p1 = pc(topR, mid);
+          const t1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          t1.setAttribute('class', 'label-outer');
+          t1.setAttribute('text-anchor', 'middle');
+          t1.setAttribute('dominant-baseline', 'middle');
+          t1.setAttribute('x', p1.x.toFixed(0));
+          t1.setAttribute('y', p1.y.toFixed(0));
+          t1.setAttribute('transform', `rotate(${(mid - 90).toFixed(2)} ${p1.x.toFixed(0)} ${p1.y.toFixed(0)})`);
+          t1.textContent = ters[ti][0] || '';
+
+          const p2 = pc(botR, mid);
+          const t2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          t2.setAttribute('class', 'label-outer');
+          t2.setAttribute('text-anchor', 'middle');
+          t2.setAttribute('dominant-baseline', 'middle');
+          t2.setAttribute('x', p2.x.toFixed(0));
+          t2.setAttribute('y', p2.y.toFixed(0));
+          t2.setAttribute('transform', `rotate(${(mid - 90).toFixed(2)} ${p2.x.toFixed(0)} ${p2.y.toFixed(0)})`);
+          t2.textContent = ters[ti][1] || '';
+
+          const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          g.setAttribute('class', 'label label-tertiary');
+          g.setAttribute('data-emotion', emo);
+          g.setAttribute('tabindex', '0');
+          g.addEventListener('click', () => setPrimarySelected(emo, !g.classList.contains('selected')));
+          g.addEventListener('keydown', (ke) => { if (ke.key === 'Enter' || ke.key === ' ') { ke.preventDefault(); setPrimarySelected(emo, !g.classList.contains('selected')); } });
+          g.appendChild(t1);
+          g.appendChild(t2);
+          emotionWheelSvg.appendChild(g);
+        }
+      }
+    });
+
+  // No center label
+  }
+
+  (async function initWheel() {
+    try {
+      const data = await loadWheelData();
+      buildEmotionWheelFromData(data);
+    } catch (e) {
+      // Build minimal wheel even if load fails
+      buildEmotionWheelFromData({});
+    }
+  })();
+
+  if (startEmotionsBtn) {
+    startEmotionsBtn.addEventListener('click', () => {
+      if (!selectedEmotions.length) return;
+      currentMood = 'feelings'; // neutral label
+      answers = {}; step = 0;
+      qTitle.textContent = 'Let’s explore this together';
+      messageArea.innerHTML = '';
+      regenBtn.disabled = true;
+      setQuestionsForEmotions(selectedEmotions);
+      setupQuestionStep();
+      switchScreen('questions');
+      qInput.focus();
+    });
+  }
 
     // Back from message screen
     qBackBtn.addEventListener('click', () => {
@@ -313,11 +656,15 @@
         const msg = await generateSupportMessage(currentMood, summary);
         renderMessage(msg);
         regenBtn.disabled = false;
-        // Save conversation (server if available; fallback local)
         const asked = Array.isArray(questions) ? questions.map(q => ({ id: q.id, category: q.category, prompt: q.prompt })) : [];
-        await saveConversation({ userId, mood: currentMood, answers, message: msg.body, questions: asked }).catch(() => {
+        const emotions = (Array.isArray(selectedEmotions) && selectedEmotions.length) ? selectedEmotions : emotionsFromMood(currentMood);
+        await saveConversation({ userId, mood: currentMood, emotions, answers, message: msg.body, questions: asked }).catch(() => {
           saveConversationLocal({ mood: currentMood, answers, message: msg.body });
         });
+        // Remember last context locally for continuation
+        try {
+          window._HER_last_context = { mood: currentMood, emotions, answers: { ...answers }, message: msg.body, ts: Date.now() };
+        } catch {}
         // Refresh history panel
         try {
           const h = await getHistory(5);
@@ -522,6 +869,17 @@
     return out;
   }
 
+  // Normalize emotions to catalog tags (e.g., happy -> joy)
+  function normalizeEmotions(list) {
+    try {
+      return (list || []).map(e => String(e).toLowerCase()).map(e => {
+        if (e === 'happy') return 'joy';
+        if (e === 'sad') return 'sadness';
+        return e;
+      });
+    } catch { return list || []; }
+  }
+
   // --- Persistence helpers ---
   function getOrCreateUserId() {
     try {
@@ -602,6 +960,7 @@
       const rows = data.conversations || [];
       return rows.map(r => ({
         mood: r.mood,
+        emotions: parseEmotions(r.emotions),
         message: r.message,
         answers: parseAnswers(r.answers),
         ts: Date.parse(r.created_at || Date.now()),
@@ -611,7 +970,7 @@
       try {
         const k = 'her_local_conversations';
         const arr = JSON.parse(localStorage.getItem(k) || '[]');
-        return arr.slice(0, limit).map(r => ({ mood: r.mood, message: r.message, answers: r.answers, ts: r.ts }));
+        return arr.slice(0, limit).map(r => ({ mood: r.mood, emotions: r.emotions || [], message: r.message, answers: r.answers, ts: r.ts }));
       } catch {
         return [];
       }
@@ -622,6 +981,12 @@
     if (!a) return {};
     if (typeof a === 'object') return a;
     try { return JSON.parse(a); } catch { return { summary: String(a) }; }
+  }
+
+  function parseEmotions(e) {
+    if (!e) return [];
+    if (Array.isArray(e)) return e;
+    try { return JSON.parse(e); } catch { return []; }
   }
 
   function renderHistory(items) {
@@ -672,6 +1037,23 @@
         historyList._cache = items;
         renderHistory(items);
       } catch (e) { console.warn(e); }
+    });
+  }
+
+  // Continue with previous emotions (inside chat)
+  if (continueWithEmotionsBtn) {
+    continueWithEmotionsBtn.addEventListener('click', () => {
+      const ctx = window._HER_last_context || {};
+      const emos = Array.isArray(ctx.emotions) ? ctx.emotions : emotionsFromMood(ctx.mood || '');
+      if (!emos || !emos.length) return;
+      selectedEmotions = [...emos];
+      currentMood = 'feelings';
+      answers = {}; step = 0;
+      qTitle.textContent = 'Let’s explore this together';
+      setQuestionsForEmotions(selectedEmotions);
+      setupQuestionStep();
+      switchScreen('questions');
+      qInput.focus();
     });
   }
 
@@ -800,7 +1182,6 @@
   }
 
   // Fetch themes at startup; apply when a mood is selected
-  showSplash();
   fetchThemes().then(t => { latestThemes = t; }).catch(() => {});
 
   // Rotate mood descriptions on home for variety
